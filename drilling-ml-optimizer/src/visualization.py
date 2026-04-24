@@ -7,41 +7,52 @@ def plot_model_comparison(results):
 
     os.makedirs("outputs/plots", exist_ok=True)
 
-    model_names = list(results.keys())
+    models = list(results.keys())
+    r2_scores = [results[m]["R2"] for m in models]
+    mae_scores = [results[m]["MAE"] for m in models]
+    rmse_scores = [results[m]["RMSE"] for m in models]
 
-    r2_scores = [results[m]["R2"] for m in model_names]
-    mae_scores = [results[m]["MAE"] for m in model_names]
-    rmse_scores = [results[m]["RMSE"] for m in model_names]
+    sns.set_style("whitegrid")
 
-    # R² plot
-    plt.figure(figsize=(8, 5))
-    sns.barplot(x=model_names, y=r2_scores)
-    plt.title("Model Comparison - R² Score")
-    plt.ylabel("R² Score")
-    plt.xticks(rotation=20)
-    plt.tight_layout()
-    plt.savefig("outputs/plots/model_r2_comparison.png")
-    plt.close()
+    def save_plot(values, title, ylabel, filename, color):
 
-    # MAE plot
-    plt.figure(figsize=(8, 5))
-    sns.barplot(x=model_names, y=mae_scores)
-    plt.title("Model Comparison - MAE")
-    plt.ylabel("MAE")
-    plt.xticks(rotation=20)
-    plt.tight_layout()
-    plt.savefig("outputs/plots/model_mae_comparison.png")
-    plt.close()
+        plt.figure(figsize=(7, 5))
+        ax = sns.barplot(x=models, y=values, palette=color)
 
-    # RMSE plot
-    plt.figure(figsize=(8, 5))
-    sns.barplot(x=model_names, y=rmse_scores)
-    plt.title("Model Comparison - RMSE")
-    plt.ylabel("RMSE")
-    plt.xticks(rotation=20)
-    plt.tight_layout()
-    plt.savefig("outputs/plots/model_rmse_comparison.png")
-    plt.close()
+        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel("Models")
+
+        for i, value in enumerate(values):
+            ax.text(i, value, round(value, 4), ha="center", va="bottom", fontweight="bold")
+
+        plt.tight_layout()
+        plt.savefig(f"outputs/plots/{filename}")
+        plt.close()
+
+    save_plot(
+        r2_scores,
+        "Model Comparison (R² Score)",
+        "R² Score",
+        "model_r2_comparison.png",
+        "Blues"
+    )
+
+    save_plot(
+        mae_scores,
+        "Model Comparison (MAE)",
+        "MAE",
+        "model_mae_comparison.png",
+        "Oranges"
+    )
+
+    save_plot(
+        rmse_scores,
+        "Model Comparison (RMSE)",
+        "RMSE",
+        "model_rmse_comparison.png",
+        "Greens"
+    )
 
 
 def plot_actual_vs_predicted(model, X, y, targets):
@@ -95,6 +106,8 @@ def plot_speed_feed_heatmaps(results_df, targets):
 
     os.makedirs("outputs/plots", exist_ok=True)
 
+    sns.set_theme(style="white")
+
     for target in targets:
 
         pivot_table = results_df.pivot(
@@ -108,13 +121,33 @@ def plot_speed_feed_heatmaps(results_df, targets):
         sns.heatmap(
             pivot_table,
             annot=True,
-            cmap="viridis",
+            cmap="YlGnBu",
+            linewidths=0.5,
             fmt=".3f"
         )
 
-        plt.title(f"Speed vs Feed Heatmap for {target}")
-        plt.xlabel("Speed")
-        plt.ylabel("Feed")
+        optimal_row = results_df.loc[results_df[target].idxmin()]
+        x_pos = list(pivot_table.columns).index(optimal_row["Speed"]) + 0.5
+        y_pos = list(pivot_table.index).index(optimal_row["Feed"]) + 0.5
+
+        plt.scatter(
+            x_pos,
+            y_pos,
+            color="red",
+            s=150,
+            marker="X",
+            label="Optimal Point"
+        )
+
+        plt.legend()
+
+        plt.title(
+            f"Effect of Speed and Feed on {target}",
+            fontsize=14,
+            fontweight="bold"
+        )
+        plt.xlabel("Spindle Speed")
+        plt.ylabel("Feed Rate")
 
         plt.tight_layout()
 
@@ -123,3 +156,138 @@ def plot_speed_feed_heatmaps(results_df, targets):
         )
 
         plt.close()
+
+
+def plot_3d_response_surface(results_df, targets):
+
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
+    import numpy as np
+    import os
+
+    os.makedirs("outputs/plots", exist_ok=True)
+
+    for target in targets:
+
+        fig = plt.figure(figsize=(9, 7))
+        ax = fig.add_subplot(111, projection='3d')
+
+        X = results_df["Speed"].values
+        Y = results_df["Feed"].values
+        Z = results_df[target].values
+
+        ax.plot_trisurf(
+            X,
+            Y,
+            Z,
+            cmap="viridis",
+            edgecolor="none",
+            alpha=0.9
+        )
+
+        ax.set_title(
+            f"3D Response Surface: Speed vs Feed vs {target}",
+            fontsize=14,
+            fontweight="bold"
+        )
+
+        ax.set_xlabel("Speed")
+        ax.set_ylabel("Feed")
+        ax.set_zlabel(target)
+
+        plt.tight_layout()
+
+        plt.savefig(
+            f"outputs/plots/response_surface_{target}.png"
+        )
+
+        plt.close()
+
+
+def plot_feature_importance(model, X):
+
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import pandas as pd
+    import os
+
+    os.makedirs("outputs/plots", exist_ok=True)
+
+    # Extract importance values
+    if hasattr(model, "feature_importances_"):
+        importance = model.feature_importances_
+    elif hasattr(model, "coef_"):
+        importance = abs(model.coef_)
+        if importance.ndim > 1:
+            importance = importance[0]
+    else:
+        return
+
+    importance_df = pd.DataFrame({
+        "Feature": X.columns,
+        "Importance": importance
+    })
+
+    # Remove encoded material columns
+    importance_df = importance_df[
+        ~importance_df["Feature"].str.contains("Material")
+    ]
+
+    importance_df = importance_df.sort_values(
+        by="Importance",
+        ascending=False
+    )
+
+    plt.figure(figsize=(8, 5))
+
+    sns.barplot(
+        data=importance_df,
+        x="Importance",
+        y="Feature",
+        palette="viridis"
+    )
+
+    plt.title(
+        "Feature Importance Ranking (Machining Parameters Only)",
+        fontsize=14,
+        fontweight="bold"
+    )
+
+    plt.tight_layout()
+
+    plt.savefig("outputs/plots/feature_importance.png")
+
+    plt.close()
+
+
+def generate_parameter_sensitivity_text(model, X):
+
+    import numpy as np
+
+    if hasattr(model, "feature_importances_"):
+        importance = model.feature_importances_
+    elif hasattr(model, "coef_"):
+        importance = np.abs(model.coef_)
+        if importance.ndim > 1:
+            importance = importance[0]
+    else:
+        return None
+
+    feature_importance_pairs = list(zip(X.columns, importance))
+
+    # Remove material-related encoded features
+    feature_importance_pairs = [
+        pair for pair in feature_importance_pairs
+        if "Material" not in pair[0]
+    ]
+
+    feature_importance_pairs.sort(
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    ranked_features = [
+        feature for feature, _ in feature_importance_pairs
+    ]
+
+    return ranked_features

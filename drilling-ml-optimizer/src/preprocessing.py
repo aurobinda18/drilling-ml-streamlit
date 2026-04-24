@@ -1,28 +1,44 @@
 def split_features_targets(df):
-    """
-    Automatically separate input features (X)
-    and output targets (y).
 
-    Works whether dataset contains:
-    Ra only
-    Fd only
-    or both.
+    """
+    Automatically detect targets and prepare feature matrix.
+    Converts categorical variables to numeric using one-hot encoding.
     """
 
-    # Possible prediction targets
-    possible_targets = ["Ra", "Fd"]
+    import pandas as pd
 
-    # Detect which targets exist
-    targets = [col for col in possible_targets if col in df.columns]
+    # Common machining output keywords
+    possible_targets = [
+        "Ra",
+        "Fd",
+        "Surface_Roughness",
+        "Delamination",
+        "Force",
+        "Temperature",
+        "Wear"
+    ]
 
-    # Remove targets from feature set
-    X = df.drop(columns=targets)
+    detected_targets = []
 
-    # Remove Material column (text column not used directly)
-    if "Material" in X.columns:
-        X = X.drop(columns=["Material"])
+    for col in df.columns:
 
-    # Target dataframe
-    y = df[targets]
+        if any(keyword.lower() in col.lower()
+               for keyword in possible_targets):
 
-    return X, y, targets
+            detected_targets.append(col)
+
+    # fallback if none detected
+    if len(detected_targets) == 0:
+
+        numeric_cols = df.select_dtypes(include="number").columns
+
+        detected_targets = numeric_cols[-1:]
+
+    # Split features and targets
+    X = df.drop(columns=detected_targets)
+    y = df[detected_targets]
+
+    # Convert categorical features into numeric
+    X = pd.get_dummies(X, drop_first=True)
+
+    return X, y, detected_targets
