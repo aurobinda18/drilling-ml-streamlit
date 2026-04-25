@@ -1,11 +1,14 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
-import os
-import pandas as pd
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+OUTPUT_PLOTS_DIR = BASE_DIR / "outputs" / "plots"
 
 def plot_model_comparison(results):
 
-    os.makedirs("outputs/plots", exist_ok=True)
+    OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     models = list(results.keys())
     r2_scores = [results[m]["R2"] for m in models]
@@ -27,7 +30,7 @@ def plot_model_comparison(results):
             ax.text(i, value, round(value, 4), ha="center", va="bottom", fontweight="bold")
 
         plt.tight_layout()
-        plt.savefig(f"outputs/plots/{filename}")
+        plt.savefig(str(OUTPUT_PLOTS_DIR / filename))
         plt.close()
 
     save_plot(
@@ -57,7 +60,7 @@ def plot_model_comparison(results):
 
 def plot_actual_vs_predicted(model, X, y, targets):
 
-    os.makedirs("outputs/plots", exist_ok=True)
+    OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     predictions = model.predict(X)
 
@@ -87,9 +90,7 @@ def plot_actual_vs_predicted(model, X, y, targets):
 
         plt.tight_layout()
 
-        plt.savefig(
-            f"outputs/plots/actual_vs_predicted_{target}.png"
-        )
+        plt.savefig(str(OUTPUT_PLOTS_DIR / f"actual_vs_predicted_{target}.png"))
 
         plt.close()
 
@@ -100,11 +101,10 @@ def plot_actual_vs_predicted(model, X, y, targets):
 
 def plot_speed_feed_heatmaps(results_df, targets):
 
-    import os
     import matplotlib.pyplot as plt
     import seaborn as sns
 
-    os.makedirs("outputs/plots", exist_ok=True)
+    OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     sns.set_theme(style="white")
 
@@ -151,9 +151,7 @@ def plot_speed_feed_heatmaps(results_df, targets):
 
         plt.tight_layout()
 
-        plt.savefig(
-            f"outputs/plots/speed_feed_heatmap_{target}.png"
-        )
+        plt.savefig(str(OUTPUT_PLOTS_DIR / f"speed_feed_heatmap_{target}.png"))
 
         plt.close()
 
@@ -163,9 +161,8 @@ def plot_3d_response_surface(results_df, targets):
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     import numpy as np
-    import os
 
-    os.makedirs("outputs/plots", exist_ok=True)
+    OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     for target in targets:
 
@@ -197,9 +194,7 @@ def plot_3d_response_surface(results_df, targets):
 
         plt.tight_layout()
 
-        plt.savefig(
-            f"outputs/plots/response_surface_{target}.png"
-        )
+        plt.savefig(str(OUTPUT_PLOTS_DIR / f"response_surface_{target}.png"))
 
         plt.close()
 
@@ -209,9 +204,7 @@ def plot_feature_importance(model, X):
     import matplotlib.pyplot as plt
     import seaborn as sns
     import pandas as pd
-    import os
-
-    os.makedirs("outputs/plots", exist_ok=True)
+    OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Extract importance values
     if hasattr(model, "feature_importances_"):
@@ -255,7 +248,7 @@ def plot_feature_importance(model, X):
 
     plt.tight_layout()
 
-    plt.savefig("outputs/plots/feature_importance.png")
+    plt.savefig(str(OUTPUT_PLOTS_DIR / "feature_importance.png"))
 
     plt.close()
 

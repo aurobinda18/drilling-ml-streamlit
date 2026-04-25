@@ -27,6 +27,11 @@ st.set_page_config(
     layout="wide"
 )
 
+APP_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = APP_DIR / "outputs"
+OUTPUT_PLOTS_DIR = OUTPUT_DIR / "plots"
+OUTPUT_METRICS_DIR = OUTPUT_DIR / "metrics"
+
 # Theme selector
 theme_mode = st.sidebar.selectbox(
     "Select UI Theme",
@@ -45,7 +50,7 @@ workspace_bg = st.sidebar.selectbox(
         "Cross Grid",
         "Blueprint Grid",
         "Engineering Dots",
-        "Neon HUD Grid",
+        "Neon HUID Grid",
         "Diagonal Mesh",
         "Soft Graph Paper"
     ]
@@ -773,9 +778,9 @@ font-size:22px;
             # Generate 3D response surface plots
             plot_3d_response_surface(full_results, selected_targets)
 
-            Path("outputs/metrics").mkdir(parents=True, exist_ok=True)
+            OUTPUT_METRICS_DIR.mkdir(parents=True, exist_ok=True)
             full_results.to_csv(
-                "outputs/metrics/full_prediction_surface.csv",
+                str(OUTPUT_METRICS_DIR / "full_prediction_surface.csv"),
                 index=False
             )
 
@@ -931,7 +936,7 @@ font-size:22px;
 """, unsafe_allow_html=True)
         st.subheader("Model Performance Analysis")
 
-        plot_dir = Path("outputs/plots")
+        plot_dir = OUTPUT_PLOTS_DIR
 
         st.subheader("Model Performance Comparison")
 
