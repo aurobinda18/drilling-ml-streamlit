@@ -34,6 +34,22 @@ def split_features_targets(df):
 
         detected_targets = numeric_cols[-1:]
 
+    # Normalize target columns to numeric where possible. This avoids
+    # downstream model/plotting errors when CSV decimals are parsed as text.
+    for target_col in detected_targets:
+        if target_col in df.columns:
+            cleaned = pd.to_numeric(
+                df[target_col].astype(str).str.strip().str.replace(",", ".", regex=False),
+                errors="coerce"
+            )
+
+            if cleaned.notna().sum() == 0:
+                raise ValueError(
+                    f"Target column '{target_col}' could not be parsed as numeric values."
+                )
+
+            df[target_col] = cleaned
+
     # Split features and targets
     X = df.drop(columns=detected_targets)
     y = df[detected_targets]

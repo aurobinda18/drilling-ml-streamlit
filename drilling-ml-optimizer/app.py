@@ -387,6 +387,36 @@ def format_label_with_unit(column_name):
     return column_name
 
 
+def normalize_uploaded_dataframe(df):
+    """Normalize uploaded CSV data for reliable numeric handling in live runs."""
+
+    normalized = df.copy()
+
+    # Remove accidental spaces from column names (e.g., " Ra ").
+    normalized.columns = [str(col).strip() for col in normalized.columns]
+
+    for col in normalized.columns:
+        series = normalized[col]
+
+        # Trim string cells and try locale-tolerant numeric parsing.
+        if series.dtype == "object":
+            stripped = series.astype(str).str.strip()
+            parsed = pd.to_numeric(
+                stripped.str.replace(",", ".", regex=False),
+                errors="coerce"
+            )
+
+            # Convert when almost all non-empty values are numeric.
+            non_empty = stripped.ne("").sum()
+            numeric = parsed.notna().sum()
+            if non_empty > 0 and (numeric / non_empty) >= 0.95:
+                normalized[col] = parsed
+            else:
+                normalized[col] = stripped
+
+    return normalized
+
+
 # Upload dataset section (in sidebar)
 
 st.sidebar.markdown("### Upload Data")
@@ -406,11 +436,11 @@ material_file = st.sidebar.file_uploader(
 
 if drilling_file:
 
-    drilling_df = pd.read_csv(drilling_file)
+    drilling_df = normalize_uploaded_dataframe(pd.read_csv(drilling_file))
 
     if material_file:
 
-        material_df = pd.read_csv(material_file)
+        material_df = normalize_uploaded_dataframe(pd.read_csv(material_file))
 
         df = drilling_df.merge(material_df, on="Material")
 
