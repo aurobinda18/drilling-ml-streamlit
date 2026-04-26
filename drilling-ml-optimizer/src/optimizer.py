@@ -43,14 +43,16 @@ def find_optimal_parameters(model, param_grid, targets):
     and find minimum values.
     """
 
-    predictions = model.predict(param_grid)
+    predictions = np.asarray(model.predict(param_grid))
 
     results = param_grid.copy()
 
     if len(targets) == 1:
-        results[targets[0]] = predictions
+        results[targets[0]] = predictions.reshape(-1)
 
     else:
+        if predictions.ndim == 1:
+            predictions = predictions.reshape(-1, 1)
         for i, target in enumerate(targets):
             results[target] = predictions[:, i]
 
@@ -78,14 +80,16 @@ def match_target_quality(model,
     - both together
     """
 
-    predictions = model.predict(param_grid)
+    predictions = np.asarray(model.predict(param_grid))
 
     results = param_grid.copy()
 
     # Attach predictions
     if len(targets) == 1:
-        results[targets[0]] = predictions
+        results[targets[0]] = predictions.reshape(-1)
     else:
+        if predictions.ndim == 1:
+            predictions = predictions.reshape(-1, 1)
         for i, target in enumerate(targets):
             results[target] = predictions[:, i]
 

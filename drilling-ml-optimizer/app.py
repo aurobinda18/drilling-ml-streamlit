@@ -50,7 +50,7 @@ workspace_bg = st.sidebar.selectbox(
         "Cross Grid",
         "Blueprint Grid",
         "Engineering Dots",
-        "Neon HUID Grid",
+        "Neon HUD Grid",
         "Diagonal Mesh",
         "Soft Graph Paper"
     ]
@@ -650,12 +650,13 @@ if drilling_file:
         input_df = pd.DataFrame([input_row])[all_feature_columns]
 
         prediction = best_model.predict(input_df)
+        prediction_array = np.asarray(prediction)
 
         st.markdown("### Live Prediction Output")
 
         if len(selected_targets) == 1:
 
-            value = round(prediction[0], 4)
+            value = round(float(prediction_array.reshape(-1)[0]), 4)
             target = format_label_with_unit(selected_targets[0])
             st.markdown(f"""
 <div style="
@@ -674,8 +675,11 @@ font-size:22px;
 
             metric_cols = st.columns(len(selected_targets))
 
+            if prediction_array.ndim == 1:
+                prediction_array = prediction_array.reshape(1, -1)
+
             for i, target in enumerate(selected_targets):
-                value = round(prediction[0][i], 4)
+                value = round(float(prediction_array[0][i]), 4)
                 metric_cols[i].markdown(f"""
 <div style="
 background: rgba(255,255,255,0.05);

@@ -60,20 +60,24 @@ def plot_model_comparison(results):
 
 def plot_actual_vs_predicted(model, X, y, targets):
 
+    import numpy as np
+
     OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    predictions = model.predict(X)
+    predictions = np.asarray(model.predict(X))
+
+    if predictions.ndim == 1:
+        predictions = predictions.reshape(-1, 1)
 
     for i, target in enumerate(targets):
 
         plt.figure(figsize=(6, 6))
 
-        actual = y[target]
+        actual = np.asarray(y[target]).reshape(-1)
 
-        if len(targets) == 1:
-            predicted = predictions
-        else:
-            predicted = predictions[:, i]
+        # Models trained with a single target can still return (n, 1).
+        target_idx = 0 if predictions.shape[1] == 1 else i
+        predicted = predictions[:, target_idx].reshape(-1)
 
         sns.scatterplot(x=actual, y=predicted)
 
@@ -204,6 +208,7 @@ def plot_feature_importance(model, X):
     import matplotlib.pyplot as plt
     import seaborn as sns
     import pandas as pd
+    import numpy as np
     OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Extract importance values
@@ -211,9 +216,18 @@ def plot_feature_importance(model, X):
         importance = model.feature_importances_
     elif hasattr(model, "coef_"):
         importance = abs(model.coef_)
-        if importance.ndim > 1:
-            importance = importance[0]
     else:
+        return
+
+    importance = np.asarray(importance)
+
+    # Collapse multi-output importances/coefs into one score per feature.
+    if importance.ndim > 1:
+        importance = importance.mean(axis=0)
+
+    importance = importance.reshape(-1)
+
+    if len(importance) != len(X.columns):
         return
 
     importance_df = pd.DataFrame({
