@@ -584,6 +584,48 @@ if drilling_file:
 
         selected_material = None
 
+    material_properties = {
+        "youngs_modulus": None,
+        "max_stress": None,
+        "flex_modulus": None,
+    }
+
+    if selected_material is not None:
+
+        material_sources = []
+
+        if material_df is not None:
+            material_sources.append(material_df)
+
+        material_sources.append(df)
+
+        for source_df in material_sources:
+
+            if "Material" not in source_df.columns:
+                continue
+
+            material_rows = source_df[source_df["Material"] == selected_material]
+
+            if material_rows.empty:
+                continue
+
+            material_row = material_rows.iloc[0]
+
+            material_properties["youngs_modulus"] = material_row.get(
+                "Modulus (Automatic Young's) (MPa)",
+                material_properties["youngs_modulus"]
+            )
+            material_properties["max_stress"] = material_row.get(
+                "Maximum Stress (MPa)",
+                material_properties["max_stress"]
+            )
+            material_properties["flex_modulus"] = material_row.get(
+                "Flex Modulus (MPa)",
+                material_properties["flex_modulus"]
+            )
+
+            break
+
     st.write("Selected Material:", selected_material)
 
     st.markdown("### Selected Prediction Model")
@@ -608,78 +650,62 @@ if drilling_file:
 
         st.write("Enter machining parameters to predict output values.")
 
-        # Keep full feature set for prediction alignment.
-        all_feature_columns = X.columns.tolist()
+        diameter_candidates = []
 
-        # Detect only variable features (remove constant columns) for UI controls.
-        ui_feature_columns = [
-            col for col in X.columns
-            if X[col].nunique() > 1
-        ]
+        if "Diameter" in df.columns:
+            diameter_candidates = pd.to_numeric(
+                df["Diameter"],
+                errors="coerce"
+            ).dropna().tolist()
 
-        st.markdown("### Adjust Machining Parameters")
+        diameter = float(diameter_candidates[0]) if diameter_candidates else 0.0
+        youngs_modulus = float(material_properties["youngs_modulus"]) if material_properties["youngs_modulus"] is not None else 0.0
+        max_stress = float(material_properties["max_stress"]) if material_properties["max_stress"] is not None else 0.0
+        flex_modulus = float(material_properties["flex_modulus"]) if material_properties["flex_modulus"] is not None else 0.0
 
-        user_inputs = {}
+        st.markdown("### Adjustable Machining Parameters")
 
-        # Build controls for original categorical columns so encoded dummy
-        # features (e.g., Material_coir) can be populated correctly.
-        categorical_inputs = {}
-        original_feature_df = df.drop(columns=targets, errors="ignore")
+        speed_value = st.slider(
+            "Speed",
+            min_value=float(df["Speed"].min()),
+            max_value=float(df["Speed"].max()),
+            value=float(df["Speed"].mean())
+        )
 
-        categorical_columns = original_feature_df.select_dtypes(
-            include=["object", "category"]
-        ).columns.tolist()
+        feed_value = st.slider(
+            "Feed",
+            min_value=float(df["Feed"].min()),
+            max_value=float(df["Feed"].max()),
+            value=float(df["Feed"].mean())
+        )
 
-        if categorical_columns:
-            st.markdown("### Categorical Inputs")
-            cat_cols = st.columns(len(categorical_columns))
+        st.markdown("### Material Properties")
+        prop_col1, prop_col2, prop_col3 = st.columns(3)
+        prop_col1.info(f"Young's Modulus\n\n{youngs_modulus:.2f} MPa")
+        prop_col2.info(f"Maximum Stress\n\n{max_stress:.2f} MPa")
+        prop_col3.info(f"Flex Modulus\n\n{flex_modulus:.2f} MPa")
 
-            for i, cat_col in enumerate(categorical_columns):
-                options = original_feature_df[cat_col].dropna().unique().tolist()
-                if options:
-                    categorical_inputs[cat_col] = cat_cols[i].selectbox(
-                        format_label_with_unit(cat_col),
-                        options
-                    )
+        input_df = pd.DataFrame([
+            {
+                "Speed": speed_value,
+                "Feed": feed_value,
+                "Diameter": diameter,
+                "Modulus (Automatic Young's) (MPa)": youngs_modulus,
+                "Maximum Stress (MPa)": max_stress,
+                "Flex Modulus (MPa)": flex_modulus,
+                "Material": selected_material,
+            }
+        ])
 
-        cols = st.columns(len(ui_feature_columns)) if ui_feature_columns else []
+        encoded_input_df = pd.get_dummies(input_df, drop_first=True)
 
-        for i, col in enumerate(ui_feature_columns):
+        for column in X.columns:
+            if column not in encoded_input_df.columns:
+                encoded_input_df[column] = 0
 
-            if col in df.columns and df[col].dtype != "object":
+        encoded_input_df = encoded_input_df[X.columns]
 
-                min_val = float(df[col].min())
-                max_val = float(df[col].max())
-                default_val = float(df[col].mean())
-
-                user_inputs[col] = cols[i].slider(
-                    format_label_with_unit(col),
-                    min_value=min_val,
-                    max_value=max_val,
-                    value=default_val
-                )
-
-            elif "_" in col:
-
-                base_col, encoded_val = col.split("_", 1)
-
-                if base_col in categorical_inputs:
-                    user_inputs[col] = float(categorical_inputs[base_col] == encoded_val)
-                else:
-                    user_inputs[col] = 0.0
-
-            else:
-
-                user_inputs[col] = 0.0
-
-        # Build full aligned input frame so predict() always receives the
-        # exact same feature names used during model fit.
-        input_row = {col: float(X[col].iloc[0]) for col in all_feature_columns}
-        input_row.update(user_inputs)
-
-        input_df = pd.DataFrame([input_row])[all_feature_columns]
-
-        prediction = best_model.predict(input_df)
+        prediction = best_model.predict(encoded_input_df)
         prediction_array = np.asarray(prediction)
 
         st.markdown("### Live Prediction Output")
