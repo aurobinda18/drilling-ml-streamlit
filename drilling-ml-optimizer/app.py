@@ -387,6 +387,58 @@ def format_label_with_unit(column_name):
     return column_name
 
 
+def to_float_or_none(value):
+    """Convert value to float when possible, otherwise return None."""
+
+    parsed = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+
+    if pd.isna(parsed):
+        return None
+
+    return float(parsed)
+
+
+def extract_material_properties(selected_material, material_df, df):
+    """Collect all numeric material properties for the selected material."""
+
+    if selected_material is None:
+        return {}
+
+    property_values = {}
+    material_sources = []
+
+    if material_df is not None:
+        material_sources.append(material_df)
+
+    material_sources.append(df)
+
+    for source_df in material_sources:
+
+        if source_df is None or "Material" not in source_df.columns:
+            continue
+
+        material_rows = source_df[source_df["Material"] == selected_material]
+
+        if material_rows.empty:
+            continue
+
+        material_row = material_rows.iloc[0]
+
+        for col, value in material_row.items():
+            if col == "Material":
+                continue
+
+            numeric_value = to_float_or_none(value)
+
+            if numeric_value is None:
+                continue
+
+            if col not in property_values:
+                property_values[col] = numeric_value
+
+    return property_values
+
+
 def normalize_uploaded_dataframe(df):
     """Normalize uploaded CSV data for reliable numeric handling in live runs."""
 
@@ -584,47 +636,11 @@ if drilling_file:
 
         selected_material = None
 
-    material_properties = {
-        "youngs_modulus": None,
-        "max_stress": None,
-        "flex_modulus": None,
-    }
-
-    if selected_material is not None:
-
-        material_sources = []
-
-        if material_df is not None:
-            material_sources.append(material_df)
-
-        material_sources.append(df)
-
-        for source_df in material_sources:
-
-            if "Material" not in source_df.columns:
-                continue
-
-            material_rows = source_df[source_df["Material"] == selected_material]
-
-            if material_rows.empty:
-                continue
-
-            material_row = material_rows.iloc[0]
-
-            material_properties["youngs_modulus"] = material_row.get(
-                "Modulus (Automatic Young's) (MPa)",
-                material_properties["youngs_modulus"]
-            )
-            material_properties["max_stress"] = material_row.get(
-                "Maximum Stress (MPa)",
-                material_properties["max_stress"]
-            )
-            material_properties["flex_modulus"] = material_row.get(
-                "Flex Modulus (MPa)",
-                material_properties["flex_modulus"]
-            )
-
-            break
+    material_properties = extract_material_properties(
+        selected_material,
+        material_df,
+        df
+    )
 
     st.write("Selected Material:", selected_material)
 
@@ -659,9 +675,9 @@ if drilling_file:
             ).dropna().tolist()
 
         diameter = float(diameter_candidates[0]) if diameter_candidates else 0.0
-        youngs_modulus = float(material_properties["youngs_modulus"]) if material_properties["youngs_modulus"] is not None else 0.0
-        max_stress = float(material_properties["max_stress"]) if material_properties["max_stress"] is not None else 0.0
-        flex_modulus = float(material_properties["flex_modulus"]) if material_properties["flex_modulus"] is not None else 0.0
+        youngs_modulus = material_properties.get("Modulus (Automatic Young's) (MPa)", 0.0)
+        max_stress = material_properties.get("Maximum Stress (MPa)", 0.0)
+        flex_modulus = material_properties.get("Flex Modulus (MPa)", 0.0)
 
         st.markdown("### Adjustable Machining Parameters")
 
@@ -680,22 +696,29 @@ if drilling_file:
         )
 
         st.markdown("### Material Properties")
-        prop_col1, prop_col2, prop_col3 = st.columns(3)
-        prop_col1.info(f"Young's Modulus\n\n{youngs_modulus:.2f} MPa")
-        prop_col2.info(f"Maximum Stress\n\n{max_stress:.2f} MPa")
-        prop_col3.info(f"Flex Modulus\n\n{flex_modulus:.2f} MPa")
 
-        input_df = pd.DataFrame([
-            {
-                "Speed": speed_value,
-                "Feed": feed_value,
-                "Diameter": diameter,
-                "Modulus (Automatic Young's) (MPa)": youngs_modulus,
-                "Maximum Stress (MPa)": max_stress,
-                "Flex Modulus (MPa)": flex_modulus,
-                "Material": selected_material,
-            }
-        ])
+        if material_properties:
+            property_items = list(material_properties.items())
+            display_columns = st.columns(min(3, len(property_items)))
+
+            for idx, (prop_name, prop_value) in enumerate(property_items):
+                unit = get_column_unit(prop_name)
+                value_text = f"{prop_value:.2f} {unit}" if unit else f"{prop_value:.2f}"
+                display_columns[idx % len(display_columns)].info(
+                    f"{prop_name}\n\n{value_text}"
+                )
+        else:
+            st.info("No numeric material properties found for selected material.")
+
+        input_row = {
+            "Speed": speed_value,
+            "Feed": feed_value,
+            "Diameter": diameter,
+            "Material": selected_material,
+        }
+        input_row.update(material_properties)
+
+        input_df = pd.DataFrame([input_row])
 
         encoded_input_df = pd.get_dummies(input_df, drop_first=True)
 
@@ -786,40 +809,35 @@ font-size:22px;
 
                 diameter = None
 
-            # Load material properties if available
-            if material_df is not None and selected_material is not None:
+            # Load material properties dynamically for selected material.
+            youngs_modulus = material_properties.get(
+                "Modulus (Automatic Young's) (MPa)",
+                0.0
+            )
 
-                material_row = material_df[
-                    material_df["Material"] == selected_material
-                ].iloc[0]
+            max_stress = material_properties.get(
+                "Maximum Stress (MPa)",
+                0.0
+            )
 
-                youngs_modulus = material_row.get(
-                    "Modulus (Automatic Young's) (MPa)", None
-                )
-
-                max_stress = material_row.get(
-                    "Maximum Stress (MPa)", None
-                )
-
-                flex_modulus = material_row.get(
-                    "Flex Modulus (MPa)", None
-                )
-
-            else:
-
-                youngs_modulus = None
-                max_stress = None
-                flex_modulus = None
+            flex_modulus = material_properties.get(
+                "Flex Modulus (MPa)",
+                0.0
+            )
 
             # Generate parameter grid
             param_grid = generate_parameter_grid(
                 speed_range,
                 feed_range,
                 diameter if diameter is not None else 0,
-                youngs_modulus if youngs_modulus is not None else 0,
-                max_stress if max_stress is not None else 0,
-                flex_modulus if flex_modulus is not None else 0
+                youngs_modulus,
+                max_stress,
+                flex_modulus
             )
+
+            for prop_name, prop_value in material_properties.items():
+                if prop_name not in param_grid.columns:
+                    param_grid[prop_name] = prop_value
 
             param_grid = align_param_grid_with_training_features(
                 param_grid,
@@ -928,39 +946,34 @@ font-size:22px;
 
                     diameter = None
 
-                # Load material properties if available
-                if material_df is not None and selected_material is not None:
+                # Load material properties dynamically for selected material.
+                youngs_modulus = material_properties.get(
+                    "Modulus (Automatic Young's) (MPa)",
+                    0.0
+                )
 
-                    material_row = material_df[
-                        material_df["Material"] == selected_material
-                    ].iloc[0]
+                max_stress = material_properties.get(
+                    "Maximum Stress (MPa)",
+                    0.0
+                )
 
-                    youngs_modulus = material_row.get(
-                        "Modulus (Automatic Young's) (MPa)", None
-                    )
-
-                    max_stress = material_row.get(
-                        "Maximum Stress (MPa)", None
-                    )
-
-                    flex_modulus = material_row.get(
-                        "Flex Modulus (MPa)", None
-                    )
-
-                else:
-
-                    youngs_modulus = None
-                    max_stress = None
-                    flex_modulus = None
+                flex_modulus = material_properties.get(
+                    "Flex Modulus (MPa)",
+                    0.0
+                )
 
                 param_grid = generate_parameter_grid(
                     speed_range,
                     feed_range,
                     diameter if diameter is not None else 0,
-                    youngs_modulus if youngs_modulus is not None else 0,
-                    max_stress if max_stress is not None else 0,
-                    flex_modulus if flex_modulus is not None else 0
+                    youngs_modulus,
+                    max_stress,
+                    flex_modulus
                 )
+
+                for prop_name, prop_value in material_properties.items():
+                    if prop_name not in param_grid.columns:
+                        param_grid[prop_name] = prop_value
 
                 param_grid = align_param_grid_with_training_features(
                     param_grid,
