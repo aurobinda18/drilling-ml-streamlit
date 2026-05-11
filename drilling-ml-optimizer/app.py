@@ -20,6 +20,13 @@ from src.optimizer import (
     find_optimal_parameters,
     match_target_quality
 )
+from src.project_insights import (
+    build_project_summary,
+    summary_to_text,
+    summary_to_flat_csv_df,
+    summary_to_json_str,
+    summary_to_docx_bytes
+)
 
 
 st.set_page_config(
@@ -469,6 +476,15 @@ def normalize_uploaded_dataframe(df):
     return normalized
 
 
+def load_optional_csv(csv_path):
+    """Load a CSV file if it exists, otherwise return None."""
+
+    if csv_path.exists():
+        return pd.read_csv(csv_path)
+
+    return None
+
+
 # Upload dataset section (in sidebar)
 
 st.sidebar.markdown("### Upload Data")
@@ -574,6 +590,23 @@ if drilling_file:
             "R2": r2
         }
 
+    performance_rows = []
+    for name, payload in results.items():
+        performance_rows.append(
+            {
+                "Model": name,
+                "MAE": payload["MAE"],
+                "RMSE": payload["RMSE"],
+                "R2": payload["R2"]
+            }
+        )
+
+    OUTPUT_METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(performance_rows).to_csv(
+        str(OUTPUT_METRICS_DIR / "model_performance.csv"),
+        index=False
+    )
+
     # Select best model automatically
     best_model_name = max(results, key=lambda x: results[x]["R2"])
     best_r2 = results[best_model_name]["R2"]
@@ -591,6 +624,18 @@ if drilling_file:
 
     best_model = results[best_model_name]["model"]
     best_model.fit(X, y)
+
+    if "project_summary" not in st.session_state:
+        st.session_state.project_summary = None
+
+    if "forward_optimization_full_results" not in st.session_state:
+        st.session_state.forward_optimization_full_results = None
+
+    if "forward_optimization_optimal_settings" not in st.session_state:
+        st.session_state.forward_optimization_optimal_settings = None
+
+    if "reverse_optimization_results" not in st.session_state:
+        st.session_state.reverse_optimization_results = None
 
     # Generate plots
     plot_model_comparison(results)
@@ -649,11 +694,12 @@ if drilling_file:
     st.success("Best performing model selected automatically.")
 
     # Create dashboard tabs
-    tab_prediction, tab_forward_opt, tab_reverse_opt, tab_analysis = st.tabs([
+    tab_prediction, tab_forward_opt, tab_reverse_opt, tab_analysis, tab_project_insights = st.tabs([
         "Prediction",
         "Forward Optimization",
         "Reverse Optimization",
-        "Model Analysis"
+        "Model Analysis",
+        "Project Insights and Results Export"
     ])
 
     # ====== PREDICTION TAB ======
@@ -881,6 +927,24 @@ font-size:22px;
                     round(optimal_settings[target][target], 4)
                 )
 
+            st.session_state.forward_optimization_full_results = full_results
+            st.session_state.forward_optimization_optimal_settings = optimal_settings
+
+            optimal_rows = []
+            for target, values in optimal_settings.items():
+                row = {
+                    "Target": target,
+                    "Speed": values["Speed"],
+                    "Feed": values["Feed"],
+                    f"Predicted_{target}": values[target]
+                }
+                optimal_rows.append(row)
+
+            pd.DataFrame(optimal_rows).to_csv(
+                str(OUTPUT_METRICS_DIR / "optimal_parameters.csv"),
+                index=False
+            )
+
             st.download_button(
                 "Download Optimization Results",
                 full_results.to_csv(index=False),
@@ -1000,6 +1064,13 @@ font-size:22px;
 
                 if target_fd_value is not None and "Fd" in selected_targets:
                     st.metric(f"Predicted {format_label_with_unit('Fd')}", round(best_match["Fd"], 4))
+
+                reverse_result_df = pd.DataFrame([best_match.to_dict()])
+                st.session_state.reverse_optimization_results = reverse_result_df
+                reverse_result_df.to_csv(
+                    str(OUTPUT_METRICS_DIR / "reverse_optimization_results.csv"),
+                    index=False
+                )
 
     # ====== MODEL ANALYSIS TAB ======
     with tab_analysis:
@@ -1130,3 +1201,155 @@ Example:
 If minimizing surface roughness (Ra), select Speed-Feed values from the lightest region.
 """
         )
+
+    # ====== PROJECT INSIGHTS AND RESULTS EXPORT TAB ======
+    with tab_project_insights:
+
+        st.markdown("""
+<hr style="border:1px solid #d0d7de;">
+""", unsafe_allow_html=True)
+        st.subheader("Project Insights and Results Export")
+
+        st.write(
+            "Generate a concise, evidence-based project summary from the actual trained models, optimization outputs, and saved visualizations."
+        )
+
+        forward_results_df = st.session_state.get("forward_optimization_full_results")
+        if forward_results_df is None:
+            forward_results_df = load_optional_csv(OUTPUT_METRICS_DIR / "full_prediction_surface.csv")
+
+        reverse_results_df = st.session_state.get("reverse_optimization_results")
+        if reverse_results_df is None:
+            reverse_results_df = load_optional_csv(OUTPUT_METRICS_DIR / "reverse_optimization_results.csv")
+
+        selected_targets_for_summary = selected_targets if len(selected_targets) > 0 else targets
+
+        if st.button("Generate Project Summary"):
+            project_summary = build_project_summary(
+                df=df,
+                X=X,
+                y=y,
+                targets=targets,
+                results=results,
+                best_model=best_model,
+                selected_targets=selected_targets_for_summary,
+                full_results=forward_results_df,
+                optimal_settings=st.session_state.get("forward_optimization_optimal_settings"),
+                reverse_results=reverse_results_df,
+            )
+
+            st.session_state.project_summary = project_summary
+
+            flat_csv_df = summary_to_flat_csv_df(project_summary)
+            flat_csv_df.to_csv(
+                str(OUTPUT_METRICS_DIR / "project_summary.csv"),
+                index=False
+            )
+
+            with open(OUTPUT_METRICS_DIR / "project_summary.txt", "w", encoding="utf-8") as file_handle:
+                file_handle.write(summary_to_text(project_summary))
+
+            with open(OUTPUT_METRICS_DIR / "project_summary.json", "w", encoding="utf-8") as file_handle:
+                file_handle.write(summary_to_json_str(project_summary))
+
+            docx_bytes = summary_to_docx_bytes(project_summary)
+            if docx_bytes is not None:
+                with open(OUTPUT_METRICS_DIR / "project_summary.docx", "wb") as file_handle:
+                    file_handle.write(docx_bytes)
+
+            st.success("Project summary generated from the current project outputs.")
+
+        if st.session_state.project_summary is not None:
+            project_summary = st.session_state.project_summary
+
+            st.subheader("Dataset Summary")
+            dataset_summary_df = pd.DataFrame(
+                [
+                    ["Total samples", project_summary["dataset_summary"]["total_samples"]],
+                    ["Input features", project_summary["dataset_summary"]["input_features"]],
+                    ["Output features", project_summary["dataset_summary"]["output_features"]],
+                    ["Feature names", ", ".join(project_summary["dataset_summary"]["feature_names"])],
+                    ["Target variables", ", ".join(project_summary["dataset_summary"]["target_variables"])],
+                    ["Missing values total", project_summary["dataset_summary"]["missing_values_total"]],
+                    ["Validation scheme", project_summary["dataset_summary"]["validation_scheme"]],
+                    ["Train-test split ratio", project_summary["dataset_summary"]["train_test_split_ratio"]],
+                ],
+                columns=["Metric", "Value"]
+            )
+            st.dataframe(dataset_summary_df, use_container_width=True)
+
+            st.subheader("Model Performance")
+            st.dataframe(project_summary["model_performance_df"], use_container_width=True)
+
+            if not project_summary["optimization_summary"]["forward_df"].empty:
+                st.subheader("Forward Optimization")
+                st.dataframe(project_summary["optimization_summary"]["forward_df"], use_container_width=True)
+
+            if not project_summary["optimization_summary"]["reverse_df"].empty:
+                st.subheader("Reverse Optimization")
+                st.dataframe(project_summary["optimization_summary"]["reverse_df"], use_container_width=True)
+
+            if not project_summary["feature_importance_df"].empty:
+                st.subheader("Feature Importance Ranking")
+                st.dataframe(project_summary["feature_importance_df"], use_container_width=True)
+
+            st.subheader("Prediction Error Statistics")
+            st.dataframe(project_summary["prediction_summary"]["prediction_metrics_df"], use_container_width=True)
+
+            st.subheader("Concise Engineering Insights")
+            for bullet in project_summary["observations"][:8]:
+                st.write(f"- {bullet}")
+
+            st.subheader("PPT-Ready Findings")
+            for bullet in project_summary["ppt_ready_findings"]:
+                st.write(f"- {bullet}")
+
+            st.subheader("Results & Discussion")
+            for bullet in project_summary["results_discussion"]:
+                st.write(f"- {bullet}")
+
+            st.subheader("Conclusion")
+            for bullet in project_summary["conclusions"]:
+                st.write(f"- {bullet}")
+
+            st.subheader("Future Scope")
+            for bullet in project_summary["future_scope"]:
+                st.write(f"- {bullet}")
+
+            st.subheader("Visualization Insights")
+            for bullet in project_summary["visualization_insights"]:
+                st.write(f"- {bullet}")
+
+            st.download_button(
+                "Download TXT",
+                summary_to_text(project_summary),
+                file_name="project_summary.txt",
+                mime="text/plain"
+            )
+
+            st.download_button(
+                "Download CSV",
+                summary_to_flat_csv_df(project_summary).to_csv(index=False),
+                file_name="project_summary.csv",
+                mime="text/csv"
+            )
+
+            st.download_button(
+                "Download JSON",
+                summary_to_json_str(project_summary),
+                file_name="project_summary.json",
+                mime="application/json"
+            )
+
+            docx_bytes = summary_to_docx_bytes(project_summary)
+            if docx_bytes is not None:
+                st.download_button(
+                    "Download DOCX",
+                    docx_bytes,
+                    file_name="project_summary.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            else:
+                st.info("DOCX export requires the optional python-docx package.")
+        else:
+            st.info("Click Generate Project Summary after the dataset and optimization outputs are available.")
